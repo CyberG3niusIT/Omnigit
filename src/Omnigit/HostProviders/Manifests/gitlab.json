@@ -18,7 +18,30 @@
   "endpoints": {
     "currentUser": "/api/v4/user",
     "repositories": "/api/v4/projects?membership=true&per_page=100",
+    "owners": "/api/v4/groups?min_access_level=30&per_page=100",
     "pullRequests": "/api/v4/projects/{owner}%2F{repo}/merge_requests?state=opened&order_by=updated_at&per_page=50"
+  },
+
+  "//ownerFields": "A GitLab group is addressed by a numeric id rather than by name, so both are mapped: full_path is what the user recognises, id is what the create call needs. min_access_level=30 above asks only for groups the user is a developer of or better - the rest are ones they could not create in anyway.",
+  "ownerFields": {
+    "login": "full_path",
+    "id": "id"
+  },
+
+  "//createRepository": "The three ways GitLab differs from everyone else, in one block: one address for both personal and group projects, the group named by a numeric namespace_id in the body rather than in the URL, and privacy spelled as a word instead of a boolean. This is the write-side mirror of the visibility mapping in repositoryFields.",
+  "createRepository": {
+    "path": "/api/v4/projects",
+    "nameField": "name",
+    "descriptionField": "description",
+    "privacy": {
+      "field": "visibility",
+      "whenPrivate": "private",
+      "whenPublic": "public"
+    },
+    "ownerField": {
+      "field": "namespace_id",
+      "source": "id"
+    }
   },
 
   "userFields": {

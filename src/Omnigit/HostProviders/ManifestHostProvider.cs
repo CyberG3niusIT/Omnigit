@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
@@ -25,6 +26,8 @@ public sealed class ManifestHostProvider(HostManifest manifest, HttpClient http)
         // not a URL, so it needs real code.
         AuthMethods = [AuthMethod.PersonalAccessToken],
         CanListRepositories = !string.IsNullOrEmpty(manifest.Endpoints.Repositories),
+        CanCreateRepositories = !string.IsNullOrEmpty(manifest.CreateRepository?.Path),
+        CanListOwners = !string.IsNullOrEmpty(manifest.Endpoints.Owners),
         CanListPullRequests = !string.IsNullOrEmpty(manifest.Endpoints.PullRequests),
     };
 
@@ -143,6 +146,119 @@ public sealed class ManifestHostProvider(HostManifest manifest, HttpClient http)
         return repositories;
     }
 
+    public async Task<IReadOnlyList<RepositoryOwner>> ListOwnersAsync(
+        HostAccount account, CancellationToken cancellationToken)
+    {
+        var self = new RepositoryOwner(account.Login, IsSelf: true);
+
+        if (string.IsNullOrEmpty(manifest.Endpoints.Owners))
+            return [self];
+
+        var owners = new List<RepositoryOwner> { self };
+        var fields = manifest.OwnerFields;
+
+        Uri? url = Combine(account.BaseUrl, manifest.Endpoints.Owners);
+
+        for (var page = 0; url is not null && page < MaxPages; page++)
+        {
+            var (document, next) = await GetJsonPageAsync(url, account.Token, cancellationToken);
+
+            using (document)
+            {
+                var root = document.RootElement;
+                if (root.ValueKind != JsonValueKind.Array)
+                    throw new HostProviderException($"{DisplayName} returned an unexpected organisation list.");
+
+                foreach (var item in root.EnumerateArray())
+                {
+                    if (Blank(fields.Login.GetString(item)) is not { } login)
+                        continue;
+
+                    owners.Add(new RepositoryOwner(login, Blank(fields.Id.GetString(item))));
+                }
+            }
+
+            url = next;
+        }
+
+        return owners;
+    }
+
+    public async Task<RemoteRepository> CreateRepositoryAsync(
+        HostAccount account, NewRepository repository, CancellationToken cancellationToken)
+    {
+        if (manifest.CreateRepository is not { } rule || string.IsNullOrEmpty(rule.Path))
+        {
+            throw new NotSupportedException(
+                $"{DisplayName}'s manifest has no createRepository block, so Omnigit does not "
+                + "know how to make a repository there. Create it on the site and add the remote.");
+        }
+
+        var owner = repository.Owner;
+        var underOrganisation = owner is { IsSelf: false };
+
+        // An organisation either changes the address or adds a field to the body; the
+        // manifest says which, because the sites we ship do one each.
+        var path = underOrganisation && !string.IsNullOrEmpty(rule.OwnerPath)
+            ? rule.OwnerPath.Replace("{owner}", Uri.EscapeDataString(owner!.Login), StringComparison.Ordinal)
+            : rule.Path;
+
+        var body = new Dictionary<string, object>(StringComparer.Ordinal)
+        {
+            [rule.NameField] = repository.Name,
+        };
+
+        if (!string.IsNullOrEmpty(rule.DescriptionField) && !string.IsNullOrWhiteSpace(repository.Description))
+            body[rule.DescriptionField] = repository.Description.Trim();
+
+        if (!string.IsNullOrEmpty(rule.Privacy.Field))
+        {
+            body[rule.Privacy.Field] = rule.Privacy.IsBoolean
+                ? repository.IsPrivate
+                : repository.IsPrivate ? rule.Privacy.WhenPrivate : rule.Privacy.WhenPublic;
+        }
+
+        if (underOrganisation && rule.OwnerField is { Field.Length: > 0 } ownerField)
+        {
+            var value = string.Equals(ownerField.Source, "login", StringComparison.OrdinalIgnoreCase)
+                ? owner!.Login
+                : owner!.Id;
+
+            if (string.IsNullOrEmpty(value))
+            {
+                throw new HostProviderException(
+                    $"{DisplayName} identifies an organisation by {ownerField.Source}, and none came "
+                    + $"back for {owner!.Login}. Check the manifest's ownerFields mapping.");
+            }
+
+            // A numeric id has to go out as a number: a site expecting namespace_id
+            // rejects "42" in quotes, and the manifest cannot say what type it is.
+            body[ownerField.Field] = long.TryParse(value, out var numeric) ? numeric : value;
+        }
+
+        using var document = await PostJsonAsync(
+            Combine(account.BaseUrl, path), account.Token, body, cancellationToken);
+
+        var fields = manifest.RepositoryFields;
+        var root = document.RootElement;
+
+        var cloneUrl = Blank(fields.CloneUrl.GetString(root))
+                       ?? throw new HostProviderException(
+                           $"{DisplayName} created the repository but returned no clone URL at "
+                           + $"'{fields.CloneUrl.Path}'. Check the manifest's repositoryFields mapping.");
+
+        return new RemoteRepository
+        {
+            Name = Blank(fields.Name.GetString(root)) ?? repository.Name,
+            Owner = fields.Owner.GetString(root) ?? owner?.Login ?? account.Login,
+            CloneUrl = cloneUrl,
+            DefaultBranch = Blank(fields.DefaultBranch.GetString(root)) ?? "main",
+            IsPrivate = fields.IsPrivate.GetBool(root),
+            Description = fields.Description.GetString(root),
+            UpdatedAt = fields.UpdatedAt.GetDate(root),
+        };
+    }
+
     public async Task<IReadOnlyList<PullRequest>> ListPullRequestsAsync(
         HostAccount account, string owner, string repository, CancellationToken cancellationToken)
     {
@@ -209,6 +325,111 @@ public sealed class ManifestHostProvider(HostManifest manifest, HttpClient http)
 
     private async Task<JsonDocument> GetJsonAsync(Uri url, string token, CancellationToken cancellationToken)
         => (await GetJsonPageAsync(url, token, cancellationToken)).Document;
+
+    /// <summary>
+    /// POSTs a JSON body and reads the site's answer back.
+    /// </summary>
+    /// <remarks>
+    /// The 422 case is worth its own message. Every forge here answers a name that is
+    /// already taken with one, and "422 Unprocessable Content" tells the user nothing
+    /// they can act on - so the site's own explanation is dug out of the body instead.
+    /// </remarks>
+    private async Task<JsonDocument> PostJsonAsync(
+        Uri url, string token, Dictionary<string, object> body, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new StringContent(
+                JsonSerializer.Serialize(body), System.Text.Encoding.UTF8, "application/json"),
+        };
+
+        if (manifest.AuthHeader is { } header)
+        {
+            request.Headers.TryAddWithoutValidation(
+                header.Name, header.Value.Replace("{token}", token, StringComparison.Ordinal));
+        }
+
+        request.Headers.TryAddWithoutValidation("Accept", "application/json");
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await http.SendAsync(request, cancellationToken);
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new HostProviderException($"Could not reach {url}: {ex.Message}", ex);
+        }
+
+        using (response)
+        {
+            var text = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                throw new HostProviderException("The token was rejected. Check it has not expired and has the right scopes.");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new HostProviderException(
+                    Explain(text) ?? $"{url} returned {(int)response.StatusCode} {response.ReasonPhrase}.");
+            }
+
+            try
+            {
+                return JsonDocument.Parse(text);
+            }
+            catch (JsonException ex)
+            {
+                throw new HostProviderException($"{url} returned something that isn't JSON.", ex);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The site's own words for why it refused, or null if it did not say. The three
+    /// keys covered are what GitHub, Gitea and GitLab actually send back.
+    /// </summary>
+    private static string? Explain(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+            return null;
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+
+            if (root.ValueKind != JsonValueKind.Object)
+                return null;
+
+            foreach (var key in (string[])["message", "error", "error_description"])
+            {
+                if (root.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String)
+                    return value.GetString();
+            }
+
+            // GitLab returns { "message": { "name": ["has already been taken"] } }, so
+            // the flat lookup above misses it and the nested shape is worth unpacking.
+            if (root.TryGetProperty("message", out var nested) && nested.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var property in nested.EnumerateObject())
+                {
+                    if (property.Value.ValueKind == JsonValueKind.Array
+                        && property.Value.EnumerateArray().FirstOrDefault() is
+                            { ValueKind: JsonValueKind.String } first)
+                    {
+                        return $"{property.Name} {first.GetString()}";
+                    }
+                }
+            }
+
+            return null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 
     private async Task<(JsonDocument Document, Uri? Next)> GetJsonPageAsync(
         Uri url, string token, CancellationToken cancellationToken)

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
@@ -36,6 +37,8 @@ public sealed class GitHubProvider(HttpClient http, string? configuredClientId) 
     public HostCapabilities Capabilities { get; } = new()
     {
         AuthMethods = [AuthMethod.BrowserDeviceLogin, AuthMethod.PersonalAccessToken],
+        CanCreateRepositories = true,
+        CanListOwners = true,
         CanListPullRequests = true,
     };
 
@@ -199,22 +202,8 @@ public sealed class GitHubProvider(HttpClient http, string? configuredClientId) 
 
                 foreach (var item in root.EnumerateArray())
                 {
-                    var name = Str(item, "name");
-                    var cloneUrl = Str(item, "clone_url");
-
-                    if (name is null || cloneUrl is null)
-                        continue;
-
-                    repositories.Add(new RemoteRepository
-                    {
-                        Name = name,
-                        Owner = item.TryGetProperty("owner", out var owner) ? Str(owner, "login") ?? string.Empty : string.Empty,
-                        CloneUrl = cloneUrl,
-                        DefaultBranch = Str(item, "default_branch") ?? "main",
-                        IsPrivate = item.TryGetProperty("private", out var p) && p.ValueKind == JsonValueKind.True,
-                        Description = Str(item, "description"),
-                        UpdatedAt = DateTimeOffset.TryParse(Str(item, "updated_at"), out var when) ? when : null,
-                    });
+                    if (ReadRepository(item) is { } repository)
+                        repositories.Add(repository);
                 }
             }
 
@@ -222,6 +211,79 @@ public sealed class GitHubProvider(HttpClient http, string? configuredClientId) 
         }
 
         return repositories;
+    }
+
+    /// <remarks>
+    /// The <c>read:org</c> scope is already asked for at sign-in, so this needs nothing
+    /// new. An account whose token predates that scope gets a 403; the organisations are
+    /// dropped rather than failing the dialog, since publishing under your own name is
+    /// still perfectly possible and is what most people are doing anyway.
+    /// </remarks>
+    public async Task<IReadOnlyList<RepositoryOwner>> ListOwnersAsync(
+        HostAccount account, CancellationToken cancellationToken)
+    {
+        var owners = new List<RepositoryOwner> { new(account.Login, IsSelf: true) };
+
+        Uri? url = new(ApiBase(account.BaseUrl), "user/orgs?per_page=100");
+
+        try
+        {
+            for (var page = 0; url is not null && page < MaxPages; page++)
+            {
+                var (document, next) = await GetJsonPageAsync(url, account.Token, cancellationToken);
+
+                using (document)
+                {
+                    if (document.RootElement.ValueKind != JsonValueKind.Array)
+                        break;
+
+                    foreach (var item in document.RootElement.EnumerateArray())
+                    {
+                        if (Str(item, "login") is { Length: > 0 } login)
+                            owners.Add(new RepositoryOwner(login));
+                    }
+                }
+
+                url = next;
+            }
+        }
+        catch (HostProviderException)
+        {
+            // See the remark above: an account that cannot list organisations can still
+            // publish, so this is a shorter list rather than a failure.
+        }
+
+        return owners;
+    }
+
+    public async Task<RemoteRepository> CreateRepositoryAsync(
+        HostAccount account, NewRepository repository, CancellationToken cancellationToken)
+    {
+        // An organisation is a different address, not a field in the body - which is
+        // why the manifest format has ownerPath as well as ownerField.
+        var url = repository.Owner is { IsSelf: false } owner
+            ? new Uri(ApiBase(account.BaseUrl), $"orgs/{Uri.EscapeDataString(owner.Login)}/repos")
+            : new Uri(ApiBase(account.BaseUrl), "user/repos");
+
+        var body = new Dictionary<string, object>(StringComparer.Ordinal)
+        {
+            ["name"] = repository.Name,
+            ["private"] = repository.IsPrivate,
+
+            // Deliberately no auto_init. The local repository already has a first
+            // commit; a README written on the server would be a second root the very
+            // first push could not fast-forward past.
+            ["auto_init"] = false,
+        };
+
+        if (!string.IsNullOrWhiteSpace(repository.Description))
+            body["description"] = repository.Description.Trim();
+
+        using var document = await PostJsonAsync(url, account.Token, body, cancellationToken);
+
+        return ReadRepository(document.RootElement)
+               ?? throw new HostProviderException(
+                   "GitHub created the repository but did not return a clone URL for it.");
     }
 
     public async Task<IReadOnlyList<PullRequest>> ListPullRequestsAsync(
@@ -406,6 +468,124 @@ public sealed class GitHubProvider(HttpClient http, string? configuredClientId) 
                 throw new HostProviderException(
                     $"GitHub returned {(int)response.StatusCode} with a body that isn't JSON.", ex);
             }
+        }
+    }
+
+    /// <summary>
+    /// One repository from GitHub's JSON, or null when it carries no name or no clone
+    /// URL. Shared by the list and by what a creation returns, which are the same shape.
+    /// </summary>
+    private static RemoteRepository? ReadRepository(JsonElement item)
+    {
+        var name = Str(item, "name");
+        var cloneUrl = Str(item, "clone_url");
+
+        if (name is null || cloneUrl is null)
+            return null;
+
+        return new RemoteRepository
+        {
+            Name = name,
+            Owner = item.TryGetProperty("owner", out var owner) ? Str(owner, "login") ?? string.Empty : string.Empty,
+            CloneUrl = cloneUrl,
+            DefaultBranch = Str(item, "default_branch") ?? "main",
+            IsPrivate = item.TryGetProperty("private", out var p) && p.ValueKind == JsonValueKind.True,
+            Description = Str(item, "description"),
+            UpdatedAt = DateTimeOffset.TryParse(Str(item, "updated_at"), out var when) ? when : null,
+        };
+    }
+
+    /// <summary>
+    /// POSTs JSON and insists on a success code.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="SendJsonAsync"/> parses whatever comes back without looking at the
+    /// status, which is harmless for a GET - a failure is not an array and the caller
+    /// says so - but not here: GitHub answers a name already in use with 422 and a body
+    /// that would otherwise be read as a repository with no clone URL. So the status is
+    /// checked, and GitHub's own explanation is what the user is shown.
+    /// </remarks>
+    private async Task<JsonDocument> PostJsonAsync(
+        Uri url, string token, Dictionary<string, object> body, CancellationToken cancellationToken)
+    {
+        using var request = Request(HttpMethod.Post, url, token);
+        request.Content = new StringContent(
+            JsonSerializer.Serialize(body), System.Text.Encoding.UTF8, "application/json");
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await http.SendAsync(request, cancellationToken);
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new HostProviderException($"Could not reach {url.Host}: {ex.Message}", ex);
+        }
+
+        using (response)
+        {
+            var text = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            {
+                throw new HostProviderException(
+                    "GitHub rejected the token. Check it has not expired and carries the 'repo' scope.");
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new HostProviderException(
+                    Explain(text) ?? $"GitHub returned {(int)response.StatusCode} {response.ReasonPhrase}.");
+            }
+
+            try
+            {
+                return JsonDocument.Parse(text);
+            }
+            catch (JsonException ex)
+            {
+                throw new HostProviderException(
+                    $"GitHub returned {(int)response.StatusCode} with a body that isn't JSON.", ex);
+            }
+        }
+    }
+
+    /// <summary>
+    /// GitHub's reason for a refusal. The nested <c>errors</c> array is where the useful
+    /// half lives - the top-level message for a duplicate name is only "Repository
+    /// creation failed", while the error beneath it says "name already exists on this
+    /// account", which is the sentence the user can act on.
+    /// </summary>
+    private static string? Explain(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+            return null;
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+
+            if (root.ValueKind != JsonValueKind.Object)
+                return null;
+
+            var message = Str(root, "message");
+
+            if (root.TryGetProperty("errors", out var errors) && errors.ValueKind == JsonValueKind.Array)
+            {
+                var detail = errors.EnumerateArray()
+                    .Select(e => Str(e, "message") ?? Str(e, "field"))
+                    .FirstOrDefault(m => !string.IsNullOrWhiteSpace(m));
+
+                if (detail is not null)
+                    return message is null ? detail : $"{message}: {detail}";
+            }
+
+            return message;
+        }
+        catch (JsonException)
+        {
+            return null;
         }
     }
 

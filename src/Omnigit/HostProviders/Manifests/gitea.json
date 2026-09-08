@@ -16,7 +16,22 @@
   "endpoints": {
     "currentUser": "/api/v1/user",
     "repositories": "/api/v1/user/repos?limit=100",
+    "owners": "/api/v1/user/orgs?limit=100",
     "pullRequests": "/api/v1/repos/{owner}/{repo}/pulls?state=open&sort=recentupdate&limit=50"
+  },
+
+  "//ownerFields": "Gitea addresses an organisation by name in the URL, so no id is needed and none is mapped.",
+  "ownerFields": {
+    "login": "username"
+  },
+
+  "//createRepository": "Gitea copied GitHub here too: a different address for an organisation, and a boolean for privacy. Note there is no auto_init - the repository being published already has its first commit, and a README written on the server would be a second root the first push could not fast-forward past.",
+  "createRepository": {
+    "path": "/api/v1/user/repos",
+    "ownerPath": "/api/v1/orgs/{owner}/repos",
+    "nameField": "name",
+    "descriptionField": "description",
+    "privacy": { "field": "private" }
   },
 
   "userFields": {

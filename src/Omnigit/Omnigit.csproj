@@ -30,6 +30,15 @@
     <!-- Site descriptions shipped with the app. Loaded by HostProviderRegistry
          through the same code path as user-written manifests. -->
     <EmbeddedResource Include="HostProviders\Manifests\*.json" />
+
+    <!-- The starting files a new repository can be given. Embedded rather than written
+         out in C# because a licence has to be reproduced exactly. LogicalName is set
+         explicitly: MSBuild's default mangles anything that isn't an identifier, which
+         would turn C++ into C__ in the picker. -->
+    <EmbeddedResource Include="Resources\Gitignore\*.gitignore"
+                      LogicalName="Omnigit.Resources.Gitignore.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Resources\Licences\*.txt"
+                      LogicalName="Omnigit.Resources.Licences.%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

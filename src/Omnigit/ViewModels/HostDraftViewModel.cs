@@ -46,12 +46,55 @@ public partial class HostDraftViewModel : ObservableObject
     public partial string RepositoriesEndpoint { get; set; } = "/api/v1/user/repos?limit=100";
 
     /// <summary>
+    /// Organisations the user can publish under. Empty is a fair answer - the publish
+    /// dialog then offers their own account, which is right for a site with no groups.
+    /// </summary>
+    [ObservableProperty]
+    public partial string OwnersEndpoint { get; set; } = "/api/v1/user/orgs?limit=100";
+
+    /// <summary>
     /// Open pull requests for one repository. Empty is a fair answer - the branch picker
     /// simply won't offer the tab for this site.
     /// </summary>
     [ObservableProperty]
     public partial string PullRequestsEndpoint { get; set; } =
         "/api/v1/repos/{owner}/{repo}/pulls?state=open&sort=recentupdate&limit=50";
+
+    // ---- Creating a repository ----------------------------------------------
+
+    /// <summary>
+    /// Where a new repository is POSTed. Empty is what says "this site can't be asked",
+    /// and the publish dialog leaves the account out rather than offering a call that
+    /// will fail.
+    /// </summary>
+    [ObservableProperty]
+    public partial string CreateRepositoryPath { get; set; } = "/api/v1/user/repos";
+
+    /// <summary>The address for an organisation's repository, where the site uses one.</summary>
+    [ObservableProperty]
+    public partial string CreateRepositoryOwnerPath { get; set; } = "/api/v1/orgs/{owner}/repos";
+
+    [ObservableProperty] public partial string CreateNameField { get; set; } = "name";
+    [ObservableProperty] public partial string CreateDescriptionField { get; set; } = "description";
+
+    /// <summary>The body key for privacy - "private" nearly everywhere, "visibility" on GitLab.</summary>
+    [ObservableProperty] public partial string CreatePrivacyField { get; set; } = "private";
+
+    /// <summary>
+    /// The two words a site that spells privacy out wants. Both blank means it takes a
+    /// JSON boolean, which is the common case.
+    /// </summary>
+    [ObservableProperty] public partial string CreatePrivacyWhenPrivate { get; set; } = string.Empty;
+    [ObservableProperty] public partial string CreatePrivacyWhenPublic { get; set; } = string.Empty;
+
+    /// <summary>The body key naming the owner, for a site that POSTs to one address.</summary>
+    [ObservableProperty] public partial string CreateOwnerField { get; set; } = string.Empty;
+
+    /// <summary>Which half of the owner to send there: "id" or "login".</summary>
+    [ObservableProperty] public partial string CreateOwnerSource { get; set; } = "id";
+
+    [ObservableProperty] public partial string OwnerLoginField { get; set; } = "username";
+    [ObservableProperty] public partial string OwnerIdField { get; set; } = string.Empty;
 
     // ---- Where the values sit in the site's JSON ----------------------------
 
@@ -174,6 +217,18 @@ public partial class HostDraftViewModel : ObservableObject
         AuthHeaderValue = "Bearer {token}",
         CurrentUserEndpoint = "/api/v4/user",
         RepositoriesEndpoint = "/api/v4/projects?membership=true&per_page=100",
+        OwnersEndpoint = "/api/v4/groups?min_access_level=30&per_page=100",
+        OwnerLoginField = "full_path",
+        OwnerIdField = "id",
+        CreateRepositoryPath = "/api/v4/projects",
+
+        // One address for both, with the group named in the body instead.
+        CreateRepositoryOwnerPath = "",
+        CreatePrivacyField = "visibility",
+        CreatePrivacyWhenPrivate = "private",
+        CreatePrivacyWhenPublic = "public",
+        CreateOwnerField = "namespace_id",
+        CreateOwnerSource = "id",
         UserLoginField = "username",
         UserDisplayNameField = "name",
         RepoNameField = "path",
@@ -207,7 +262,19 @@ public partial class HostDraftViewModel : ObservableObject
         AuthHeaderValue = manifest.AuthHeader?.Value ?? "Bearer {token}",
         CurrentUserEndpoint = manifest.Endpoints.CurrentUser,
         RepositoriesEndpoint = manifest.Endpoints.Repositories,
+        OwnersEndpoint = manifest.Endpoints.Owners,
         PullRequestsEndpoint = manifest.Endpoints.PullRequests,
+        OwnerLoginField = manifest.OwnerFields.Login.Path,
+        OwnerIdField = manifest.OwnerFields.Id.Path,
+        CreateRepositoryPath = manifest.CreateRepository?.Path ?? string.Empty,
+        CreateRepositoryOwnerPath = manifest.CreateRepository?.OwnerPath ?? string.Empty,
+        CreateNameField = manifest.CreateRepository?.NameField ?? "name",
+        CreateDescriptionField = manifest.CreateRepository?.DescriptionField ?? "description",
+        CreatePrivacyField = manifest.CreateRepository?.Privacy.Field ?? "private",
+        CreatePrivacyWhenPrivate = manifest.CreateRepository?.Privacy.WhenPrivate ?? string.Empty,
+        CreatePrivacyWhenPublic = manifest.CreateRepository?.Privacy.WhenPublic ?? string.Empty,
+        CreateOwnerField = manifest.CreateRepository?.OwnerField?.Field ?? string.Empty,
+        CreateOwnerSource = manifest.CreateRepository?.OwnerField?.Source ?? "id",
         UserLoginField = manifest.UserFields.Login.Path,
         UserDisplayNameField = manifest.UserFields.DisplayName.Path,
         UserAvatarField = manifest.UserFields.AvatarUrl.Path,
@@ -247,7 +314,34 @@ public partial class HostDraftViewModel : ObservableObject
         {
             CurrentUser = CurrentUserEndpoint.Trim(),
             Repositories = RepositoriesEndpoint.Trim(),
+            Owners = OwnersEndpoint.Trim(),
             PullRequests = PullRequestsEndpoint.Trim(),
+        },
+        OwnerFields = new OwnerFieldMap
+        {
+            Login = new FieldRef(OwnerLoginField.Trim()),
+            Id = new FieldRef(OwnerIdField.Trim()),
+        },
+
+        // Null rather than an empty block: the absence is what CanCreateRepositories
+        // reads, and a block with no path would be a site that claims it can and can't.
+        CreateRepository = string.IsNullOrWhiteSpace(CreateRepositoryPath) ? null : new CreateRepositoryRule
+        {
+            Path = CreateRepositoryPath.Trim(),
+            OwnerPath = CreateRepositoryOwnerPath.Trim(),
+            NameField = CreateNameField.Trim(),
+            DescriptionField = CreateDescriptionField.Trim(),
+            Privacy = new PrivacyField
+            {
+                Field = CreatePrivacyField.Trim(),
+                WhenPrivate = CreatePrivacyWhenPrivate.Trim(),
+                WhenPublic = CreatePrivacyWhenPublic.Trim(),
+            },
+            OwnerField = string.IsNullOrWhiteSpace(CreateOwnerField) ? null : new OwnerBodyField
+            {
+                Field = CreateOwnerField.Trim(),
+                Source = CreateOwnerSource.Trim(),
+            },
         },
         UserFields = new UserFieldMap
         {

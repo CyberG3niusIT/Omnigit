@@ -37,6 +37,14 @@ public sealed class HostManifest
 
     public RepositoryFieldMap RepositoryFields { get; set; } = new();
 
+    /// <summary>
+    /// How to create a repository on this site. Null means the site can't be asked, and
+    /// the publish dialog leaves it out rather than offering a call that will fail.
+    /// </summary>
+    public CreateRepositoryRule? CreateRepository { get; set; }
+
+    public OwnerFieldMap OwnerFields { get; set; } = new();
+
     public PullRequestFieldMap PullRequestFields { get; set; } = new();
 
     /// <summary>
@@ -93,6 +101,12 @@ public sealed class EndpointSet
     public string Repositories { get; set; } = string.Empty;
 
     /// <summary>
+    /// Organisations the user may create a repository under. Empty means only their own
+    /// account is offered, which is right for a site with no such concept.
+    /// </summary>
+    public string Owners { get; set; } = string.Empty;
+
+    /// <summary>
     /// Open pull requests for one repository. <c>{owner}</c> and <c>{repo}</c> are
     /// substituted, since unlike the others this endpoint is about a particular clone.
     /// Empty means the site can't list them and the UI hides the tab.
@@ -105,6 +119,94 @@ public sealed class UserFieldMap
     public FieldRef Login { get; set; } = new("login");
     public FieldRef DisplayName { get; set; } = new("full_name");
     public FieldRef AvatarUrl { get; set; } = new("avatar_url");
+}
+
+/// <summary>
+/// Where an organisation's name and id sit in the site's JSON. Two fields because the
+/// forges disagree about which one addresses a repository: GitHub and Gitea take the
+/// login in a URL, GitLab takes a numeric namespace id in the body.
+/// </summary>
+public sealed class OwnerFieldMap
+{
+    public FieldRef Login { get; set; } = new("login");
+
+    /// <summary>Optional. Left empty where the site addresses owners by name.</summary>
+    public FieldRef Id { get; set; } = new(string.Empty);
+}
+
+/// <summary>
+/// How to POST a new repository to a site.
+/// </summary>
+/// <remarks>
+/// The one place the manifest format describes a request body rather than a response,
+/// and it exists because the three sites we ship disagree on all three axes at once.
+/// GitHub and Gitea POST to <c>/user/repos</c> for yourself and <c>/orgs/{owner}/repos</c>
+/// for an organisation, and send <c>private: true</c>. GitLab POSTs to
+/// <c>/projects</c> either way, distinguishes the owner with a <c>namespace_id</c> in
+/// the body, and spells privacy as <c>visibility: "private"</c>. So the path, the owner
+/// and the privacy flag each need saying separately - a single body template would only
+/// have fitted whichever site was written first.
+/// </remarks>
+public sealed class CreateRepositoryRule
+{
+    /// <summary>The path a repository owned by the signed-in user is POSTed to.</summary>
+    public string Path { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The path used when an organisation owns it, over <c>{owner}</c>. Empty means the
+    /// site uses one address for both and identifies the owner in the body instead - see
+    /// <see cref="OwnerField"/>.
+    /// </summary>
+    public string OwnerPath { get; set; } = string.Empty;
+
+    /// <summary>The body key carrying the repository's name.</summary>
+    public string NameField { get; set; } = "name";
+
+    /// <summary>The body key carrying the description. Empty omits it.</summary>
+    public string DescriptionField { get; set; } = "description";
+
+    /// <summary>How this site spells "only I can see this".</summary>
+    public PrivacyField Privacy { get; set; } = new();
+
+    /// <summary>
+    /// The body key naming the owner, for a site that POSTs to one address. Null where
+    /// <see cref="OwnerPath"/> does the job.
+    /// </summary>
+    public OwnerBodyField? OwnerField { get; set; }
+}
+
+/// <summary>
+/// The body key for privacy, and the two values it takes. A boolean site leaves
+/// <see cref="WhenPrivate"/> and <see cref="WhenPublic"/> empty; a site that spells it
+/// as a word fills both in.
+/// </summary>
+/// <remarks>
+/// The write-side mirror of <see cref="FieldRef"/>'s <c>equals</c>, which exists for the
+/// same reason on the read side - GitLab's <c>visibility</c> string is why both are here.
+/// </remarks>
+public sealed class PrivacyField
+{
+    public string Field { get; set; } = "private";
+
+    public string WhenPrivate { get; set; } = string.Empty;
+
+    public string WhenPublic { get; set; } = string.Empty;
+
+    /// <summary>True when the site wants a JSON bool rather than one of the two words.</summary>
+    public bool IsBoolean => string.IsNullOrEmpty(WhenPrivate) && string.IsNullOrEmpty(WhenPublic);
+}
+
+/// <summary>Names the owner inside the request body, rather than in the URL.</summary>
+public sealed class OwnerBodyField
+{
+    public string Field { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Which half of <see cref="RepositoryOwner"/> to send: "id" or "login". A site
+    /// asking for an id gets nothing when the owner list carried no ids, which is why
+    /// <see cref="OwnerFieldMap.Id"/> and this are set together or not at all.
+    /// </summary>
+    public string Source { get; set; } = "id";
 }
 
 public sealed class RepositoryFieldMap

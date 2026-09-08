@@ -47,6 +47,40 @@ public sealed class RemoteRepository
     public string FullName => string.IsNullOrEmpty(Owner) ? Name : $"{Owner}/{Name}";
 }
 
+/// <summary>
+/// What to create on a site, filled in by the publish dialog. Deliberately the small
+/// set every forge agrees on - a name, some prose, and whether the world can see it.
+/// </summary>
+public sealed class NewRepository
+{
+    public required string Name { get; init; }
+
+    public string Description { get; init; } = string.Empty;
+
+    public bool IsPrivate { get; init; } = true;
+
+    /// <summary>
+    /// The account or organisation it belongs to. Empty means the signed-in user, which
+    /// is a different API call on most sites rather than a value to send.
+    /// </summary>
+    public RepositoryOwner? Owner { get; init; }
+}
+
+/// <summary>
+/// Somewhere a repository can be created: the signed-in user, or an organisation they
+/// belong to.
+/// </summary>
+/// <remarks>
+/// <see cref="Id"/> is carried because the forges disagree on how an owner is named.
+/// GitHub and Gitea put the login in the URL - <c>/orgs/{login}/repos</c> - while GitLab
+/// POSTs to one address and identifies the group by a numeric <c>namespace_id</c> in the
+/// body. Holding both means a manifest can describe either without code.
+/// </remarks>
+public sealed record RepositoryOwner(string Login, string? Id = null, bool IsSelf = false)
+{
+    public string Label => IsSelf ? $"{Login} (your account)" : Login;
+}
+
 /// <summary>An open pull request, as the site describes it.</summary>
 /// <remarks>
 /// Deliberately the same shape for every site. What a forge calls this differs - GitLab
@@ -113,6 +147,20 @@ public sealed class HostCapabilities
 {
     public required IReadOnlyList<AuthMethod> AuthMethods { get; init; }
     public bool CanListRepositories { get; init; } = true;
+
+    /// <summary>
+    /// False for a manifest with no createRepository block, which is every host written
+    /// before the format had one. The publish dialog leaves such an account out of its
+    /// picker rather than offering a site that will refuse.
+    /// </summary>
+    public bool CanCreateRepositories { get; init; }
+
+    /// <summary>
+    /// Whether <see cref="IHostProvider.ListOwnersAsync"/> can name organisations as
+    /// well as the user. False leaves the publish dialog's owner picker showing the one
+    /// account, which is correct rather than empty.
+    /// </summary>
+    public bool CanListOwners { get; init; }
 
     /// <summary>
     /// False for a manifest with no pullRequests endpoint, which is every host written

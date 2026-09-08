@@ -990,6 +990,64 @@ public sealed partial class GitService : IGitService
         File.WriteAllLines(file, lines);
     }
 
+    // ------------------------------------------------- creating and publishing
+
+    /// <remarks>
+    /// <c>Repository.Init</c> leaves HEAD on libgit2's built-in <c>master</c>, which is
+    /// no longer what any of the sites we talk to call their default. Rewriting HEAD to
+    /// point at an unborn branch of the chosen name is exactly what <c>git init -b</c>
+    /// does, and it has to happen before the first commit - afterwards the name is on a
+    /// ref with history behind it and changing it is a rename.
+    /// </remarks>
+    public string Init(string path, string defaultBranch)
+    {
+        var full = Path.GetFullPath(path);
+        var branch = string.IsNullOrWhiteSpace(defaultBranch) ? "main" : defaultBranch.Trim();
+
+        Directory.CreateDirectory(full);
+
+        if (Repository.IsValid(full))
+            throw new InvalidOperationException($"{full} is already a git repository.");
+
+        Repository.Init(full);
+
+        using var repo = new Repository(full);
+
+        // Written as a file rather than through Refs, because every overload there
+        // resolves the target to an object first and there is no object to resolve: the
+        // branch has no commits, which is the whole point. This is the same two lines
+        // `git init -b` writes, and HEAD was created moments ago by Init above.
+        File.WriteAllText(Path.Combine(repo.Info.Path, "HEAD"), $"ref: refs/heads/{branch}\n");
+
+        return repo.Info.WorkingDirectory?.TrimEnd(Path.DirectorySeparatorChar, '/') ?? full;
+    }
+
+    /// <remarks>
+    /// Read through <c>BuildSignature</c> rather than <c>Config.Get</c> so the answer is
+    /// the one git would actually use: the same fallback chain, and the same null when
+    /// nothing is configured. The fallback identity the commit methods substitute is not
+    /// wanted here - a licence naming "Omnigit" would be worse than one naming nobody.
+    /// </remarks>
+    public string? GetAuthorName(string path)
+    {
+        using var repo = new Repository(Discover(path));
+
+        var name = repo.Config.BuildSignature(DateTimeOffset.Now)?.Name;
+        return string.IsNullOrWhiteSpace(name) ? null : name;
+    }
+
+    public void AddRemote(string path, string name, string url)
+    {
+        using var repo = new Repository(Discover(path));
+
+        // Publishing twice - a first attempt that failed after the remote was written,
+        // then a retry - must not throw on a name that is already there.
+        if (repo.Network.Remotes[name] is not null)
+            repo.Network.Remotes.Remove(name);
+
+        repo.Network.Remotes.Add(name, url);
+    }
+
     // ------------------------------------------------------------- networking
 
     public string? GetRemoteUrl(string path)
