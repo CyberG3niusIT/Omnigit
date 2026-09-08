@@ -130,6 +130,17 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.5.0" date="2026-09-08">
+      <url type="details">https://github.com/Polemus/Omnigit/releases/tag/v0.5.0</url>
+      <description>
+        <p>
+          Create a new repository from inside Omnigit, and publish it to
+          GitHub, Gitea or GitLab in the same step, with a README, a
+          .gitignore and a licence of your choosing. Omnigit now also
+          reopens whichever repository you had open last.
+        </p>
+      </description>
+    </release>
     <release version="0.4.7" date="2026-08-28">
       <url type="details">https://github.com/Polemus/Omnigit/releases/tag/v0.4.7</url>
       <description>
