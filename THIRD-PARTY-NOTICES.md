@@ -100,6 +100,40 @@ any modified version be renamed. Omnigit embeds it unmodified.
 
 ---
 
+## Bundled text: the new-repository templates
+
+Not code, and not linked into anything — these are files Omnigit writes into a
+repository you create with it, embedded from `src/Omnigit/Resources/`. They are the same
+two collections GitHub Desktop bundles for the same dialog, so a repository started here
+and one started there begin identically.
+
+### `.gitignore` templates — CC0 1.0 (public domain dedication)
+
+The 25 files in `Resources/Gitignore/`, taken from
+[github/gitignore](https://github.com/github/gitignore), which is released under
+[CC0 1.0](https://github.com/github/gitignore/blob/main/LICENSE) — no attribution is
+required, and this entry is a courtesy rather than an obligation.
+
+### Licence texts — the licences themselves
+
+The 13 files in `Resources/Licences/`, taken from
+[github/choosealicense.com](https://github.com/github/choosealicense.com)'s `_licenses`
+folder. Each is the verbatim text of a licence, reproduced so that a repository created
+here gets an accurate one; the placeholders for the year and the copyright holder are
+filled in at the moment the file is written.
+
+Reproducing a licence's text verbatim is what every licence in the set is *for*, and
+none of them attaches conditions to Omnigit for shipping a copy. They are embedded
+rather than typed into C# for exactly this reason — a licence retyped by hand is one
+that is subtly wrong, and being subtly wrong about a licence is the failure mode worth
+engineering against.
+
+Note that the CC0 dedication and the site's own metadata are separate things: the
+`choosealicense.com` *website* is CC-BY-3.0, but the licence texts themselves are not the
+site's to license, and are not covered by it.
+
+---
+
 ## Development-only dependencies
 
 These are used to build and test Omnigit and are **not** present in any release binary.

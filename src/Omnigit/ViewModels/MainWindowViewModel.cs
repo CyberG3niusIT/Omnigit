@@ -451,6 +451,311 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>What the header's gear would do if pressed now.</summary>
     public string SettingsButtonLabel => IsSettingsPageVisible ? "Close settings" : "Settings";
 
+    // ---- Making a repository, and putting it on a site ---------------------
+
+    /// <summary>
+    /// The new-repository form while it is open, or null. Local only - see the remarks
+    /// on <see cref="NewRepositoryViewModel"/> for why the site comes afterwards.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasNewRepositoryDraft))]
+    public partial NewRepositoryViewModel? NewRepositoryDraft { get; set; }
+
+    public bool HasNewRepositoryDraft => NewRepositoryDraft is not null;
+
+    /// <summary>The publish form while it is open, or null.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasPublishDraft))]
+    public partial PublishRepositoryViewModel? PublishDraft { get; set; }
+
+    public bool HasPublishDraft => PublishDraft is not null;
+
+    /// <summary>
+    /// Accounts on sites Omnigit knows how to create a repository on. A signed-in
+    /// account whose provider cannot is deliberately left out rather than offered and
+    /// then refused.
+    /// </summary>
+    private IReadOnlyList<HostAccount> AccountsThatCanCreate => [.. Accounts
+        .Where(a => _hosts.ById(a.ProviderId)?.Capabilities.CanCreateRepositories == true)];
+
+    [RelayCommand]
+    private void ShowNewRepository()
+    {
+        IsRepositoryPickerOpen = false;
+
+        var draft = new NewRepositoryViewModel(AccountsThatCanCreate);
+        Watch(draft.Publish);
+
+        NewRepositoryDraft = draft;
+    }
+
+    /// <summary>
+    /// Refills a target's organisation list whenever its site changes, and once now.
+    /// Organisations belong to one site and mean nothing on another, so the old list is
+    /// thrown away rather than filtered.
+    /// </summary>
+    private void Watch(PublishTargetViewModel target)
+    {
+        target.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(PublishTargetViewModel.Target))
+                _ = LoadOwnersAsync(target);
+        };
+
+        _ = LoadOwnersAsync(target);
+    }
+
+    [RelayCommand]
+    private void CancelNewRepository() => NewRepositoryDraft = null;
+
+    /// <summary>Picks the folder the new repository's own directory goes inside.</summary>
+    [RelayCommand]
+    private async Task PickNewRepositoryFolderAsync()
+    {
+        if (NewRepositoryDraft is not { } draft)
+            return;
+
+        if (await _picker.PickAsync("Where should the repository go?") is { Length: > 0 } path)
+            draft.ParentPath = path;
+    }
+
+    /// <summary>
+    /// Creates the repository, writes whatever starting files were asked for, and makes
+    /// the first commit.
+    /// </summary>
+    /// <remarks>
+    /// The commit is not optional decoration. A repository with no commits has no
+    /// branch either - HEAD points at a name nothing has ever written - so the branch
+    /// picker has nothing to show and the toolbar can say nothing true about it. Asking
+    /// for no starting files is still allowed, and then there genuinely is no commit to
+    /// make; that is the case someone importing existing work into an empty folder
+    /// wants, and it resolves itself the moment they commit.
+    /// </remarks>
+    [RelayCommand]
+    private async Task ConfirmNewRepositoryAsync()
+    {
+        if (NewRepositoryDraft is not { CanCreate: true } draft)
+            return;
+
+        var path = draft.TargetPath;
+        var name = draft.Name.Trim();
+        var account = draft.Publish.Account;
+        var request = draft.Publish.ToRequest(name, draft.Description);
+        NewRepositoryDraft = null;
+
+        string? created = null;
+
+        await RunAsync(async () =>
+        {
+            created = await Task.Run(() =>
+            {
+                var workdir = _git.Init(path, DefaultBranchForNewRepositories);
+                var files = draft.StartingFiles(_git.GetAuthorName(workdir) ?? string.Empty);
+
+                foreach (var (relative, contents) in files)
+                    System.IO.File.WriteAllText(System.IO.Path.Combine(workdir, relative), contents);
+
+                if (files.Count > 0)
+                {
+                    _git.Commit(
+                        workdir,
+                        files.Select(f => f.Path),
+                        "Initial commit",
+                        string.Empty);
+                }
+
+                return workdir;
+            });
+
+            Log(ActivityLevel.Success, $"Created {name} at {created}");
+
+            // Last, and only once everything above worked. A repository that exists on
+            // a site but not on disk would be the one failure with nothing here to
+            // press to finish it.
+            if (account is not null && request is not null)
+            {
+                try
+                {
+                    await PublishAsync(created, account, request);
+                }
+                catch (Exception ex)
+                {
+                    // Deliberately not rethrown. The repository was created and
+                    // committed; only the half that needed a server failed, and letting
+                    // this reach RunAsync would report the whole press as a failure over
+                    // a repository sitting there perfectly intact. Say which half, and
+                    // what to press to finish it.
+                    Log(
+                        ActivityLevel.Error,
+                        $"{name} was created here, but not on {account.BaseUrl.Host} — {ex.Message}",
+                        "Everything is committed locally. Press Publish repository on the "
+                        + $"toolbar to try again.\n\n{ex}");
+                }
+            }
+        });
+
+        if (created is null)
+            return;
+
+        var added = await AddRepositoryPathAsync(created, persist: true);
+
+        ShowRepository();
+
+        if (added is not null)
+            await OpenRepositoryAsync(added);
+    }
+
+    /// <summary>
+    /// What a repository made here starts on. Fixed rather than read from git's
+    /// <c>init.defaultBranch</c>, because every site Omnigit talks to now calls it main
+    /// and a repository about to be published to one of them should agree with it.
+    /// </summary>
+    private const string DefaultBranchForNewRepositories = "main";
+
+    /// <summary>
+    /// Opens the publish form, and fills in its organisation list in the background.
+    /// </summary>
+    [RelayCommand]
+    private async Task ShowPublishRepositoryAsync()
+    {
+        if (SelectedRepository is not { } repository)
+            return;
+
+        var accounts = AccountsThatCanCreate;
+
+        if (accounts.Count == 0)
+        {
+            Log(
+                ActivityLevel.Warning,
+                Accounts.Count == 0
+                    ? "Sign in to a hosting site first — there is nowhere to publish this yet."
+                    : "None of the sites you are signed in to can be asked to create a repository.");
+            return;
+        }
+
+        var draft = new PublishRepositoryViewModel(repository.Name, string.Empty, accounts);
+        Watch(draft.Target);
+
+        PublishDraft = draft;
+        await Task.CompletedTask;
+    }
+
+    [RelayCommand]
+    private void CancelPublish() => PublishDraft = null;
+
+    /// <summary>
+    /// Asks the chosen site which organisations the account could publish under. A
+    /// failure leaves the account itself in the list, which is the answer that is always
+    /// true - see <see cref="IHostProvider.ListOwnersAsync"/>.
+    /// </summary>
+    private async Task LoadOwnersAsync(PublishTargetViewModel target)
+    {
+        if (target.Account is not { } account)
+        {
+            // Back to "just on this machine". The organisations of the site that was
+            // picked a moment ago must not stay on screen under a different answer.
+            target.SetOwners([]);
+            return;
+        }
+
+        if (_hosts.ById(account.ProviderId) is not { } provider)
+            return;
+
+        target.IsLoadingOwners = true;
+
+        try
+        {
+            var owners = await provider.ListOwnersAsync(account, default);
+
+            // The site may have been changed again while this was in flight.
+            if (ReferenceEquals(target.Account, account))
+                target.SetOwners(owners);
+        }
+        catch (Exception ex)
+        {
+            Log(ActivityLevel.Warning, $"Could not list organisations for {account.Handle}: {ex.Message}");
+
+            if (ReferenceEquals(target.Account, account))
+            {
+                // Still offer the account itself - a token without read:org can publish
+                // perfectly well - but say on the form that the site did not answer.
+                // Silently falling back left the form looking healthy right up until
+                // Create reached the network, which is where a stopped server showed up.
+                target.SetOwners([new RepositoryOwner(account.Login, IsSelf: true)]);
+
+                target.SiteProblem =
+                    $"Couldn't ask {account.BaseUrl.Host} which organisations you belong to — "
+                    + $"{ex.Message} Publishing there will probably fail too.";
+            }
+        }
+        finally
+        {
+            target.IsLoadingOwners = false;
+        }
+    }
+
+    /// <summary>
+    /// Creates the repository on the site, points origin at it and pushes.
+    /// </summary>
+    /// <remarks>
+    /// The push is what makes this worth one button rather than three. It is also the
+    /// step that can fail on its own - the repository exists on the site by then - so
+    /// the remote is written first and left in place: a second press of the sync button
+    /// is an ordinary push, not a second attempt at creating something already there.
+    ///
+    /// Called inside a <c>RunAsync</c> by both routes in, so it reports through the log
+    /// and lets faults travel out to the banner rather than catching them itself.
+    /// </remarks>
+    private async Task PublishAsync(string path, HostAccount account, NewRepository request)
+    {
+        if (_hosts.ById(account.ProviderId) is not { } provider)
+            return;
+
+        var created = await provider.CreateRepositoryAsync(account, request, default);
+
+        Log(ActivityLevel.Success, $"Created {created.FullName} on {account.BaseUrl.Host}");
+
+        await Task.Run(() => _git.AddRemote(path, "origin", created.CloneUrl));
+
+        void Trace(string line) => _log.Write(ActivityLevel.Trace, line);
+
+        var result = await Task.Run(
+            () => _git.Push(path, provider.GetGitCredentials(account), Trace));
+
+        Log(result.Succeeded ? ActivityLevel.Success : ActivityLevel.Error, result.Message);
+    }
+
+    /// <summary>
+    /// Creates the repository on the site, points origin at it, and pushes.
+    /// </summary>
+    /// <remarks>
+    /// The push is what makes this worth one button rather than three. It is also the
+    /// step that can fail on its own - the repository exists on the site by then - so
+    /// the remote is written first and left in place: a second press of the sync button
+    /// is an ordinary push, not a second attempt at creating something that is already
+    /// there.
+    /// </remarks>
+    [RelayCommand]
+    private async Task ConfirmPublishAsync()
+    {
+        if (PublishDraft is not { CanPublish: true } draft
+            || draft.Target.Account is not { } account
+            || draft.ToRequest() is not { } request
+            || SelectedRepository is not { } repository)
+        {
+            return;
+        }
+
+        var path = repository.LocalPath;
+        PublishDraft = null;
+
+        await RunAsync(() => PublishAsync(path, account, request));
+
+        // Whether or not the push worked, origin is now set and the toolbar has to stop
+        // saying this repository is only on this machine.
+        await OpenRepositoryAsync(repository);
+    }
+
     // ---- Browse and clone --------------------------------------------------
 
     /// <summary>What the list is filtered down to. Rebuilt rather than filtered in the view.</summary>
@@ -532,6 +837,7 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>False for a repository with no remote, where publishing means nothing.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SyncActionLabel))]
+    [NotifyPropertyChangedFor(nameof(SyncDetailLabel))]
     [NotifyCanExecuteChangedFor(nameof(SyncCommand))]
     [NotifyCanExecuteChangedFor(nameof(FetchCommand))]
     [NotifyCanExecuteChangedFor(nameof(PullCommand))]
@@ -612,16 +918,24 @@ public partial class MainWindowViewModel : ViewModelBase
         + "Committing finishes the operation; abandoning puts everything back.";
 
     /// <remarks>
-    /// Publish comes first because a branch the remote has never seen has nothing to be
-    /// ahead or behind of, and "Fetch origin" was the wrong offer there - the whole point
-    /// is to get the branch out.
+    /// Four verbs became five. A repository with no remote at all is not a failed fetch
+    /// - it is one that has never been anywhere, and the button says so and opens the
+    /// publish dialog. That is GitHub Desktop's shape: the third toolbar button reads
+    /// "Publish repository" until there is a remote, then goes back to being the sync
+    /// button for the rest of the repository's life.
+    ///
+    /// Publish-the-branch comes before the counts for the same reason a rung down: a
+    /// branch the remote has never seen has nothing to be ahead or behind of, and
+    /// "Fetch origin" was the wrong offer there.
     /// </remarks>
-    public string SyncActionLabel => CanPublish ? "Publish branch"
+    public string SyncActionLabel => !HasRemote ? "Publish repository"
+                                   : CanPublish ? "Publish branch"
                                    : Behind > 0 ? "Pull origin"
                                    : Ahead > 0 ? "Push origin"
                                    : "Fetch origin";
 
     public string SyncDetailLabel => SelectedRepository is null ? string.Empty
+        : !HasRemote ? "This repository is only on this machine"
         : LastFetched is { } when ? $"Last fetched {TimeFormat.Relative(when)}"
         : "Never fetched";
 
@@ -631,11 +945,17 @@ public partial class MainWindowViewModel : ViewModelBase
     public bool HasSyncCount => !string.IsNullOrEmpty(SyncCountLabel);
 
     /// <summary>
-    /// All four sync commands need somewhere to go. A repository with no remote is not a
-    /// failure to report every time the button is pressed - it is a button that should
-    /// not be pressable.
+    /// Fetch, pull and push all need somewhere to go. A repository with no remote is not
+    /// a failure to report every time one is pressed - they are buttons that should not
+    /// be pressable.
     /// </summary>
     public bool CanSync => SelectedRepository is not null && HasRemote && !IsBusy;
+
+    /// <summary>
+    /// The sync button itself, which has one more state than the three verbs above: a
+    /// repository with no remote, where pressing it opens the publish dialog.
+    /// </summary>
+    public bool CanPressSync => CanSync || (SelectedRepository is not null && !IsBusy);
 
     // ---- Commit box --------------------------------------------------------
 
@@ -1049,13 +1369,20 @@ public partial class MainWindowViewModel : ViewModelBase
         foreach (var account in Accounts)
             Log(ActivityLevel.Trace, $"Signed in to {account.BaseUrl.Host} as {account.Login}");
 
-        var paths = await Task.Run(() => _store.Load());
+        var stored = await Task.Run(() => _store.Load());
 
-        foreach (var path in paths)
+        foreach (var path in stored.Paths)
             await AddRepositoryPathAsync(path, persist: false);
 
-        if (Repositories.Count > 0)
-            await OpenRepositoryAsync(Repositories[0]);
+        // What was open last time, falling back to the first in the list. A path is
+        // matched against the working directory rather than the saved string, since a
+        // repository added from a subdirectory resolves to its root on the way in.
+        var reopen = Repositories.FirstOrDefault(
+                         r => string.Equals(r.LocalPath, stored.LastOpened, StringComparison.Ordinal))
+                     ?? Repositories.FirstOrDefault();
+
+        if (reopen is not null)
+            await OpenRepositoryAsync(reopen);
 
         StartBackgroundFetch();
         Update.StartChecking();
@@ -1300,7 +1627,6 @@ public partial class MainWindowViewModel : ViewModelBase
     private async Task RemoveRepositoryAsync(RepositoryInfo repository)
     {
         Repositories.Remove(repository);
-        _store.Save(Repositories.Select(r => r.LocalPath));
         RebuildGroups();
 
         if (SelectedRepository == repository)
@@ -1313,6 +1639,10 @@ public partial class MainWindowViewModel : ViewModelBase
             History.Clear();
             SelectedCommitFiles.Clear();
         }
+
+        // After the selection is cleared, so the removed repository is not written back
+        // as the one to reopen. Opening another below saves again with its path.
+        SaveRepositories();
 
         if (Repositories.Count > 0)
             await OpenRepositoryAsync(Repositories[0]);
@@ -1581,13 +1911,20 @@ public partial class MainWindowViewModel : ViewModelBase
     /// Performs whatever the sync button says: publish when the remote has never seen
     /// this branch, pull when behind, push when ahead, otherwise fetch.
     /// </summary>
-    [RelayCommand(CanExecute = nameof(CanSync))]
+    [RelayCommand(CanExecute = nameof(CanPressSync))]
     private Task SyncAsync()
-        // Publishing is a push - to a branch that isn't there yet. Push writes the
-        // tracking config on the way, so this only ever happens once per branch.
-        => PerformSyncAsync(CanPublish || (Behind == 0 && Ahead > 0) ? SyncAction.Push
-                            : Behind > 0 ? SyncAction.Pull
-                            : SyncAction.Fetch);
+    {
+        // Nowhere to sync to yet. The button is offering to make somewhere, which is a
+        // dialog rather than a network call, so it leaves this path entirely.
+        if (!HasRemote)
+            return ShowPublishRepositoryAsync();
+
+        // Publishing a branch is a push - to a branch that isn't there yet. Push writes
+        // the tracking config on the way, so this only ever happens once per branch.
+        return PerformSyncAsync(CanPublish || (Behind == 0 && Ahead > 0) ? SyncAction.Push
+                                : Behind > 0 ? SyncAction.Pull
+                                : SyncAction.Fetch);
+    }
 
     [RelayCommand(CanExecute = nameof(CanSync))]
     private Task FetchAsync() => PerformSyncAsync(SyncAction.Fetch);
@@ -2870,10 +3207,18 @@ public partial class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(HasRepositories));
 
         if (persist)
-            _store.Save(Repositories.Select(r => r.LocalPath));
+            SaveRepositories();
 
         return info;
     }
+
+    /// <summary>
+    /// Writes the repository list and which one is open. One helper rather than three
+    /// call sites spelling it out, because a writer that forgot the second argument
+    /// would silently clear the answer the next launch depends on.
+    /// </summary>
+    private void SaveRepositories()
+        => _store.Save(Repositories.Select(r => r.LocalPath), SelectedRepository?.LocalPath);
 
     private async Task OpenRepositoryAsync(RepositoryInfo repository)
     {
@@ -2895,6 +3240,12 @@ public partial class MainWindowViewModel : ViewModelBase
         SelectedRepository = repository;
         OnPropertyChanged(nameof(SyncDetailLabel));
         _watcher.Watch(repository.LocalPath);
+
+        // Recorded on the switch rather than on the way out. There is no reliable
+        // moment at shutdown - a crash, a kill, or the updater restarting the app all
+        // skip it - and the file is a few hundred bytes.
+        if (switched)
+            SaveRepositories();
 
         await RunAsync(() => LoadRepositoryAsync(repository, announce: true));
 

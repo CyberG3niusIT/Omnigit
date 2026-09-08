@@ -24,6 +24,64 @@
 
     <Window.Resources>
         <conv:HexToBrushConverter x:Key="HexToBrush" />
+
+        <!-- Where a repository is going and who may see it. Shared by both dialogs that
+             ask it - the new-repository form and Publish repository - so the question is
+             worded once and cannot drift into two shapes. -->
+        <DataTemplate x:Key="PublishTarget" x:DataType="vm:PublishTargetViewModel">
+            <StackPanel Spacing="14">
+                <StackPanel Spacing="6" IsVisible="{Binding CanChooseSite}">
+                    <TextBlock Classes="sectionLabel" Text="PUBLISH TO" />
+                    <ComboBox HorizontalAlignment="Stretch"
+                              ItemsSource="{Binding Targets}"
+                              SelectedItem="{Binding Target, Mode=TwoWay}">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:PublishTarget">
+                                <TextBlock Text="{Binding Label}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                </StackPanel>
+
+                <!-- Both of these are questions about a destination, so neither is asked
+                     until there is one. -->
+                <StackPanel Spacing="6">
+                    <StackPanel.IsVisible>
+                        <MultiBinding Converter="{x:Static BoolConverters.And}">
+                            <Binding Path="HasSite" />
+                            <Binding Path="HasChoiceOfOwner" />
+                        </MultiBinding>
+                    </StackPanel.IsVisible>
+                    <TextBlock Classes="sectionLabel" Text="OWNER" />
+                    <ComboBox HorizontalAlignment="Stretch"
+                              ItemsSource="{Binding Owners}"
+                              SelectedItem="{Binding Owner, Mode=TwoWay}">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="hp:RepositoryOwner">
+                                <TextBlock Text="{Binding Label}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                </StackPanel>
+
+                <TextBlock Classes="muted"
+                           IsVisible="{Binding IsLoadingOwners}"
+                           Text="Asking which organisations you belong to…" />
+
+                <!-- The site did not answer. Publishing is still offered, because a
+                     token that cannot list organisations can usually still create - but
+                     a form that says nothing here looks healthy until Create reaches the
+                     network. -->
+                <TextBlock Classes="caption" TextWrapping="Wrap"
+                           Foreground="{DynamicResource BannerWarningBorder}"
+                           IsVisible="{Binding HasSiteProblem}"
+                           Text="{Binding SiteProblem}" />
+
+                <CheckBox Content="Keep this code private"
+                          IsVisible="{Binding HasSite}"
+                          IsChecked="{Binding IsPrivate, Mode=TwoWay}" />
+            </StackPanel>
+        </DataTemplate>
     </Window.Resources>
 
     <!-- GitHub Desktop's own keys for push and pull. The sync button fetches when there
@@ -33,6 +91,9 @@
         <KeyBinding Gesture="Ctrl+P" Command="{Binding PushCommand}" />
         <KeyBinding Gesture="Ctrl+Shift+P" Command="{Binding PullCommand}" />
         <KeyBinding Gesture="Ctrl+Shift+F" Command="{Binding FetchCommand}" />
+
+        <!-- GitHub Desktop's own key for this, and free here: Omnigit has never bound it. -->
+        <KeyBinding Gesture="Ctrl+N" Command="{Binding ShowNewRepositoryCommand}" />
     </Window.KeyBindings>
 
     <Grid>
@@ -122,7 +183,20 @@
                             <Flyout Placement="BottomEdgeAlignedRight"
                                     FlyoutPresenterClasses="picker">
                                 <StackPanel Width="280">
-                                    <!-- Signed into nothing, and the two rows above are
+                                    <!-- First, and the only row here that is never
+                                         hidden: making a repository needs no account.
+                                         It lands on this machine and is published
+                                         afterwards, or never. -->
+                                    <Button Classes="rowButton"
+                                            Click="OnAddRepositoryRowClick"
+                                            Command="{Binding ShowNewRepositoryCommand}">
+                                        <StackPanel Orientation="Horizontal" Spacing="9">
+                                            <Path Classes="icon" Data="{DynamicResource IconPlus}" />
+                                            <TextBlock Classes="body" Text="New repository…" />
+                                        </StackPanel>
+                                    </Button>
+
+                                    <!-- Signed into nothing, and the two rows below are
                                          both about a hosting site there isn't one of.
                                          Cloning has nowhere to clone from, and a local
                                          repository would land in a sidebar grouped by
@@ -134,7 +208,7 @@
                                             Click="OnAddRepositoryRowClick"
                                             Command="{Binding AddRepositoryCommand}">
                                         <StackPanel Orientation="Horizontal" Spacing="9">
-                                            <Path Classes="icon" Data="{DynamicResource IconPlus}" />
+                                            <Path Classes="icon" Data="{DynamicResource IconRepo}" />
                                             <TextBlock Classes="body" Text="Add local repository…" />
                                         </StackPanel>
                                     </Button>
@@ -144,7 +218,7 @@
                                             Click="OnAddRepositoryRowClick"
                                             Command="{Binding ShowCloneCommand}">
                                         <StackPanel Orientation="Horizontal" Spacing="9">
-                                            <Path Classes="icon" Data="{DynamicResource IconRepo}" />
+                                            <Path Classes="icon" Data="{DynamicResource IconSync}" />
                                             <TextBlock Classes="body" Text="Clone repository…" />
                                         </StackPanel>
                                     </Button>
@@ -597,6 +671,143 @@
             <!-- All four follow the branch-switch prompt's shape: a ContentControl so
                  nothing binds against a null draft, a scrim so the question gets an
                  answer, and the confirming button on the right. -->
+
+            <!-- Making a repository. Local only, and reachable while signed out: the
+                 site comes afterwards, through the publish dialog below. -->
+            <Border Background="{DynamicResource ScrimBackground}"
+                    IsVisible="{Binding HasNewRepositoryDraft}">
+                <ContentControl Content="{Binding NewRepositoryDraft}"
+                                HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:NewRepositoryViewModel">
+                            <Border Classes="dialog" Width="480">
+                                <StackPanel Spacing="14">
+                                    <TextBlock Classes="h2" Text="Create a new repository" />
+
+                                    <StackPanel Spacing="6">
+                                        <TextBlock Classes="sectionLabel" Text="NAME" />
+                                        <TextBox Classes="commitBox"
+                                                 Text="{Binding Name, Mode=TwoWay}"
+                                                 PlaceholderText="my-project" />
+                                    </StackPanel>
+
+                                    <StackPanel Spacing="6">
+                                        <TextBlock Classes="sectionLabel" Text="DESCRIPTION" />
+                                        <TextBox Classes="commitBox"
+                                                 Text="{Binding Description, Mode=TwoWay}"
+                                                 PlaceholderText="What it is (optional)" />
+                                    </StackPanel>
+
+                                    <StackPanel Spacing="6">
+                                        <TextBlock Classes="sectionLabel" Text="LOCAL PATH" />
+                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                            <TextBox Grid.Column="0" Classes="commitBox"
+                                                     Text="{Binding ParentPath, Mode=TwoWay}"
+                                                     PlaceholderText="The folder to create it inside" />
+                                            <Button Grid.Column="1" Classes="secondary" Content="Choose…"
+                                                    Command="{Binding #Root.((vm:MainWindowViewModel)DataContext).PickNewRepositoryFolderCommand}" />
+                                        </Grid>
+                                        <TextBlock Classes="muted" TextWrapping="Wrap"
+                                                   Text="{Binding PathLabel}" />
+                                    </StackPanel>
+
+                                    <CheckBox Content="Start it with a README"
+                                              IsChecked="{Binding WriteReadme, Mode=TwoWay}" />
+
+                                    <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+                                        <StackPanel Grid.Column="0" Spacing="6">
+                                            <TextBlock Classes="sectionLabel" Text="GIT IGNORE" />
+                                            <ComboBox HorizontalAlignment="Stretch"
+                                                      ItemsSource="{Binding GitignoreNames}"
+                                                      SelectedItem="{Binding GitignoreName, Mode=TwoWay}" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Spacing="6">
+                                            <TextBlock Classes="sectionLabel" Text="LICENCE" />
+                                            <ComboBox HorizontalAlignment="Stretch"
+                                                      ItemsSource="{Binding Licences}"
+                                                      SelectedItem="{Binding Licence, Mode=TwoWay}" />
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <Border Classes="divider" />
+
+                                    <ContentControl Content="{Binding Publish}"
+                                                    ContentTemplate="{StaticResource PublishTarget}" />
+
+                                    <TextBlock Classes="caption" TextWrapping="Wrap"
+                                               IsVisible="{Binding !HasProblem}"
+                                               Text="{Binding SummaryLabel}" />
+
+                                    <TextBlock Classes="caption" TextWrapping="Wrap"
+                                               Foreground="{DynamicResource BannerErrorBorder}"
+                                               IsVisible="{Binding HasProblem}"
+                                               Text="{Binding Problem}" />
+
+                                    <StackPanel Orientation="Horizontal" Spacing="10"
+                                                HorizontalAlignment="Right">
+                                        <Button Classes="secondary" Content="Cancel"
+                                                Command="{Binding #Root.((vm:MainWindowViewModel)DataContext).CancelNewRepositoryCommand}" />
+
+                                        <!-- The verb changes with the destination: one
+                                             press does more when a site is chosen, and
+                                             the button has to say so before it is
+                                             pressed rather than afterwards. -->
+                                        <Button Classes="primary"
+                                                Content="{Binding CreateButtonLabel}"
+                                                IsEnabled="{Binding CanCreate}"
+                                                Command="{Binding #Root.((vm:MainWindowViewModel)DataContext).ConfirmNewRepositoryCommand}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ContentControl.ContentTemplate>
+                </ContentControl>
+            </Border>
+
+            <!-- Putting a repository that already exists here onto a hosting site. -->
+            <Border Background="{DynamicResource ScrimBackground}"
+                    IsVisible="{Binding HasPublishDraft}">
+                <ContentControl Content="{Binding PublishDraft}"
+                                HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:PublishRepositoryViewModel">
+                            <Border Classes="dialog" Width="460">
+                                <StackPanel Spacing="14">
+                                    <TextBlock Classes="h2" Text="Publish repository" />
+
+                                    <StackPanel Spacing="6">
+                                        <TextBlock Classes="sectionLabel" Text="NAME" />
+                                        <TextBox Classes="commitBox"
+                                                 Text="{Binding Name, Mode=TwoWay}" />
+                                    </StackPanel>
+
+                                    <StackPanel Spacing="6">
+                                        <TextBlock Classes="sectionLabel" Text="DESCRIPTION" />
+                                        <TextBox Classes="commitBox"
+                                                 Text="{Binding Description, Mode=TwoWay}"
+                                                 PlaceholderText="What it is (optional)" />
+                                    </StackPanel>
+
+                                    <ContentControl Content="{Binding Target}"
+                                                    ContentTemplate="{StaticResource PublishTarget}" />
+
+                                    <TextBlock Classes="caption" TextWrapping="Wrap"
+                                               Text="{Binding SummaryLabel}" />
+
+                                    <StackPanel Orientation="Horizontal" Spacing="10"
+                                                HorizontalAlignment="Right">
+                                        <Button Classes="secondary" Content="Cancel"
+                                                Command="{Binding #Root.((vm:MainWindowViewModel)DataContext).CancelPublishCommand}" />
+                                        <Button Classes="primary" Content="Publish repository"
+                                                IsEnabled="{Binding CanPublish}"
+                                                Command="{Binding #Root.((vm:MainWindowViewModel)DataContext).ConfirmPublishCommand}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ContentControl.ContentTemplate>
+                </ContentControl>
+            </Border>
 
             <!-- Naming a branch that starts at an older commit. -->
             <Border Background="{DynamicResource ScrimBackground}"

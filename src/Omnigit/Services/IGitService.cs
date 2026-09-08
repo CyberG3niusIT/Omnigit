@@ -145,6 +145,32 @@ public interface IGitService
     string? GetRemoteUrl(string path);
 
     /// <summary>
+    /// Creates an empty repository at <paramref name="path"/>, making the directory if
+    /// it isn't there, and points HEAD at <paramref name="defaultBranch"/>.
+    /// </summary>
+    /// <remarks>
+    /// The branch does not exist yet - nothing does - so this writes HEAD as a symbolic
+    /// ref to a branch with no commits, which is what <c>git init -b</c> does and what
+    /// makes the first commit land on the name the user chose rather than on libgit2's
+    /// built-in <c>master</c>.
+    /// </remarks>
+    /// <returns>The working directory, which is <paramref name="path"/> made absolute.</returns>
+    string Init(string path, string defaultBranch);
+
+    /// <summary>
+    /// Adds a remote, replacing one of the same name. Used when a repository created
+    /// here is published to a site for the first time.
+    /// </summary>
+    void AddRemote(string path, string name, string url);
+
+    /// <summary>
+    /// The name git would sign a commit with here - <c>user.name</c>, from the
+    /// repository's config or the user's global one. Null when it is set in neither,
+    /// which is a fresh install nobody has configured yet.
+    /// </summary>
+    string? GetAuthorName(string path);
+
+    /// <summary>
     /// Clones into <paramref name="targetPath"/>, which must not already hold anything.
     /// Authentication problems come back as a <see cref="SyncResult"/> like the others.
     /// </summary>

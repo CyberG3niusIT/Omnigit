@@ -367,6 +367,21 @@
                                             <TextBox Classes="commitBox"
                                                      Text="{Binding PullRequestsEndpoint, Mode=TwoWay}"
                                                      PlaceholderText="{}{owner}/{repo} pull requests — leave empty if the site has none" />
+                                            <TextBox Classes="commitBox"
+                                                     Text="{Binding OwnersEndpoint, Mode=TwoWay}"
+                                                     PlaceholderText="Organisations — leave empty if the site has none" />
+                                        </StackPanel>
+
+                                        <StackPanel Spacing="6">
+                                            <TextBlock Classes="sectionLabel" Text="CREATING A REPOSITORY" />
+                                            <TextBlock Classes="muted" TextWrapping="Wrap"
+                                                       Text="Where Omnigit POSTs a new repository, and the address for one an organisation owns. Leave the first empty and Omnigit won't offer to publish to this site." />
+                                            <TextBox Classes="commitBox"
+                                                     Text="{Binding CreateRepositoryPath, Mode=TwoWay}"
+                                                     PlaceholderText="/api/v1/user/repos" />
+                                            <TextBox Classes="commitBox"
+                                                     Text="{Binding CreateRepositoryOwnerPath, Mode=TwoWay}"
+                                                     PlaceholderText="/api/v1/orgs/{}{owner}/repos — empty if the owner goes in the body" />
                                         </StackPanel>
 
                                         <Expander Header="Where the values sit in the responses">
@@ -417,6 +432,59 @@
                                                         <TextBox Grid.Column="1" Classes="commitBox"
                                                                  Text="{Binding RepoPrivateEquals, Mode=TwoWay}"
                                                                  PlaceholderText="(leave empty for true/false)" />
+                                                    </Grid>
+                                                </StackPanel>
+
+                                                <StackPanel Spacing="6">
+                                                    <TextBlock Classes="muted" Text="Organisation: name, id — the id only for a site that addresses one by number" />
+                                                    <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                                                        <TextBox Grid.Column="0" Classes="commitBox"
+                                                                 Text="{Binding OwnerLoginField, Mode=TwoWay}"
+                                                                 PlaceholderText="username" />
+                                                        <TextBox Grid.Column="1" Classes="commitBox"
+                                                                 Text="{Binding OwnerIdField, Mode=TwoWay}"
+                                                                 PlaceholderText="(leave empty for a name)" />
+                                                    </Grid>
+                                                </StackPanel>
+
+                                                <StackPanel Spacing="6">
+                                                    <TextBlock Classes="muted" Text="New repository: the body keys for its name and description" />
+                                                    <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                                                        <TextBox Grid.Column="0" Classes="commitBox"
+                                                                 Text="{Binding CreateNameField, Mode=TwoWay}"
+                                                                 PlaceholderText="name" />
+                                                        <TextBox Grid.Column="1" Classes="commitBox"
+                                                                 Text="{Binding CreateDescriptionField, Mode=TwoWay}"
+                                                                 PlaceholderText="description" />
+                                                    </Grid>
+                                                </StackPanel>
+
+                                                <StackPanel Spacing="6">
+                                                    <TextBlock Classes="muted" TextWrapping="Wrap"
+                                                               Text="New repository: the body key for privacy, and — only if the site wants a word rather than true/false — the words for private and public." />
+                                                    <Grid ColumnDefinitions="*,*,*" ColumnSpacing="10">
+                                                        <TextBox Grid.Column="0" Classes="commitBox"
+                                                                 Text="{Binding CreatePrivacyField, Mode=TwoWay}"
+                                                                 PlaceholderText="private" />
+                                                        <TextBox Grid.Column="1" Classes="commitBox"
+                                                                 Text="{Binding CreatePrivacyWhenPrivate, Mode=TwoWay}"
+                                                                 PlaceholderText="(empty for true/false)" />
+                                                        <TextBox Grid.Column="2" Classes="commitBox"
+                                                                 Text="{Binding CreatePrivacyWhenPublic, Mode=TwoWay}"
+                                                                 PlaceholderText="(empty for true/false)" />
+                                                    </Grid>
+                                                </StackPanel>
+
+                                                <StackPanel Spacing="6">
+                                                    <TextBlock Classes="muted" TextWrapping="Wrap"
+                                                               Text="New repository: the body key naming the owner, and whether to send its id or its name. Only for a site that POSTs to one address for everything." />
+                                                    <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                                                        <TextBox Grid.Column="0" Classes="commitBox"
+                                                                 Text="{Binding CreateOwnerField, Mode=TwoWay}"
+                                                                 PlaceholderText="namespace_id" />
+                                                        <TextBox Grid.Column="1" Classes="commitBox"
+                                                                 Text="{Binding CreateOwnerSource, Mode=TwoWay}"
+                                                                 PlaceholderText="id or login" />
                                                     </Grid>
                                                 </StackPanel>
 

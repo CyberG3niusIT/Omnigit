@@ -46,6 +46,35 @@ public interface IHostProvider
     Task<IReadOnlyList<RemoteRepository>> ListRepositoriesAsync(HostAccount account, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Where the user may create a repository: their own account, and any organisation
+    /// they belong to. The first entry is always the account itself.
+    /// </summary>
+    /// <remarks>
+    /// Returns the account alone when the site can't be asked - see
+    /// <see cref="HostCapabilities.CanListOwners"/>. That is a real answer rather than a
+    /// failure: publishing under your own name works everywhere, and a dialog offering
+    /// nothing at all would suggest otherwise.
+    /// </remarks>
+    Task<IReadOnlyList<RepositoryOwner>> ListOwnersAsync(HostAccount account, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Creates a repository on the site and returns it, clone URL and all.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately creates it empty - no README, no licence, no first commit. Omnigit
+    /// publishes a repository that already exists here, so anything the site added would
+    /// be a commit the local branch does not have, turning the very first push into a
+    /// divergence the user has to merge. GitHub Desktop creates empty for the same
+    /// reason; the starting files come from <see cref="Services.RepositoryTemplates"/>
+    /// before the first commit instead.
+    ///
+    /// Throws <see cref="NotSupportedException"/> unless
+    /// <see cref="HostCapabilities.CanCreateRepositories"/>.
+    /// </remarks>
+    Task<RemoteRepository> CreateRepositoryAsync(
+        HostAccount account, NewRepository repository, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Open pull requests for one repository, newest first. Empty when the provider
     /// can't list them - see <see cref="HostCapabilities.CanListPullRequests"/>.
     /// </summary>
