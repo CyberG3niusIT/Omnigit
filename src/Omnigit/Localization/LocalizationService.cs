@@ -59,7 +59,8 @@ public sealed class LocalizationService : ILocalizationService
 
     public CultureInfo CurrentCulture => _currentCulture;
 
-    public string? SelectedCulture => _settings.UiCulture;
+    public string? SelectedCulture
+        => _settings.UiCulture is null ? null : _currentCulture.Name;
 
     public bool IsRightToLeft => _currentCulture.TextInfo.IsRightToLeft;
 
