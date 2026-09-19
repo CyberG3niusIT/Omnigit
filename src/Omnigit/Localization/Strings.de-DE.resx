@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <data name="App.Settings">
+    <value>Einstellungen</value>
+  </data>
+  <data name="Settings.Language">
+    <value>Sprache</value>
+  </data>
+  <data name="Settings.Language.Description">
+    <value>Wähle die Sprache der Omnigit-Oberfläche.</value>
+  </data>
+  <data name="Settings.Language.System">
+    <value>Systemeinstellung</value>
+  </data>
+</root>

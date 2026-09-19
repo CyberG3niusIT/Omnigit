@@ -35,6 +35,16 @@ public static class SupportedCultures
         "cs-CZ",
     ];
 
+    /// <summary>
+    /// Cultures with translation resources complete enough to expose in the UI.
+    /// Add a culture here only when its resource set is ready for users.
+    /// </summary>
+    public static IReadOnlyList<string> Available { get; } =
+    [
+        "en-US",
+        "de-DE",
+    ];
+
     public static IReadOnlySet<string> RightToLeft { get; } =
         new HashSet<string>(System.StringComparer.OrdinalIgnoreCase)
         {
