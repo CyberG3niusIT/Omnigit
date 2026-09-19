@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: docker
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: https://data.forgejo.org/actions/checkout@v6
+
+      - name: Set up .NET
+        uses: https://data.forgejo.org/actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore Omnigit.slnx
+
+      - name: Build
+        run: dotnet build Omnigit.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test Omnigit.slnx --configuration Release --no-build --verbosity normal
