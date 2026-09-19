@@ -106,6 +106,7 @@ public sealed class LocalizationService : ILocalizationService
         // Avalonia indexer bindings observe Item[] just like ordinary .NET binding
         // engines do, so every localized string is re-read after a language switch.
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("Item[]"));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(string.Empty));
     }
 
     internal static string ResolveAvailableCulture(string? requested)

@@ -11,7 +11,7 @@ public class LocalizationServiceTests
         var service = new LocalizationService(new MemorySettingsStore(), "xx-YY");
 
         Assert.Equal("en-US", service.CurrentCulture.Name);
-        Assert.Equal("Settings", service["App.Settings"]);
+        Assert.Equal("SETTINGS", service["Settings_Title"]);
     }
 
     [Fact]
@@ -20,7 +20,7 @@ public class LocalizationServiceTests
         var service = new LocalizationService(new MemorySettingsStore(), "de-CH");
 
         Assert.Equal("de-DE", service.CurrentCulture.Name);
-        Assert.Equal("Einstellungen", service["App.Settings"]);
+        Assert.Equal("EINSTELLUNGEN", service["Settings_Title"]);
     }
 
     [Fact]
@@ -30,7 +30,7 @@ public class LocalizationServiceTests
         var service = new LocalizationService(store, "en-GB");
 
         Assert.Equal("de-DE", service.CurrentCulture.Name);
-        Assert.Equal("Einstellungen", service["App.Settings"]);
+        Assert.Equal("EINSTELLUNGEN", service["Settings_Title"]);
     }
 
     [Fact]
@@ -44,7 +44,7 @@ public class LocalizationServiceTests
         service.SetCulture("de-DE");
 
         Assert.Equal("de-DE", store.Settings.UiCulture);
-        Assert.Equal("Einstellungen", service["App.Settings"]);
+        Assert.Equal("EINSTELLUNGEN", service["Settings_Title"]);
         Assert.Contains("Item[]", changed);
     }
 

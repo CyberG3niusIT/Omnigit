@@ -1,15 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
-  <data name="App.Settings">
-    <value>Settings</value>
-  </data>
-  <data name="Settings.Language">
-    <value>Language</value>
-  </data>
-  <data name="Settings.Language.Description">
-    <value>Choose the language used by the Omnigit interface.</value>
-  </data>
-  <data name="Settings.Language.System">
-    <value>System default</value>
-  </data>
+  <data name="Settings_BackToRepository"><value>← Back to repository</value></data>
+  <data name="Settings_Title"><value>SETTINGS</value></data>
+  <data name="Settings_General"><value>General</value></data>
+  <data name="Settings_General_Description"><value>Application-wide preferences.</value></data>
+  <data name="Settings_Accounts"><value>Accounts</value></data>
+  <data name="Settings_HostingSites"><value>Hosting sites</value></data>
+  <data name="Settings_About"><value>About</value></data>
+  <data name="Settings_Language"><value>Language</value></data>
+  <data name="Settings_Language_Description"><value>Choose the language used by the Omnigit interface.</value></data>
+  <data name="Settings_Language_System"><value>System default</value></data>
 </root>

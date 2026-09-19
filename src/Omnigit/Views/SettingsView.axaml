@@ -21,23 +21,36 @@
                 <Button Classes="secondary" Margin="14,0,14,16"
                         HorizontalAlignment="Stretch"
                         Command="{Binding ShowRepositoryCommand}"
-                        Content="← Back to repository" />
+                        Content="{ReflectionBinding Localization[Settings_BackToRepository]}" />
 
-                <TextBlock Classes="sectionLabel" Text="SETTINGS" Margin="18,0,18,8" />
+                <TextBlock Classes="sectionLabel"
+                           Text="{ReflectionBinding Localization[Settings_Title]}"
+                           Margin="18,0,18,8" />
 
-                <Button Classes="settingsTab" Content="Accounts"
-                        Classes.active="{Binding IsAccountsSection}"
+                <Button Classes="settingsTab"
+                        Content="{ReflectionBinding Localization[Settings_General]}"
+                        Classes.active="{Binding IsGeneralSection}"
                         Command="{Binding ShowSettingsSectionCommand}">
                     <Button.CommandParameter>
                         <x:Int32>0</x:Int32>
                     </Button.CommandParameter>
                 </Button>
 
-                <Button Classes="settingsTab" Content="Hosting sites"
-                        Classes.active="{Binding IsHostsSection}"
+                <Button Classes="settingsTab"
+                        Content="{ReflectionBinding Localization[Settings_Accounts]}"
+                        Classes.active="{Binding IsAccountsSection}"
                         Command="{Binding ShowSettingsSectionCommand}">
                     <Button.CommandParameter>
                         <x:Int32>1</x:Int32>
+                    </Button.CommandParameter>
+                </Button>
+
+                <Button Classes="settingsTab"
+                        Content="{ReflectionBinding Localization[Settings_HostingSites]}"
+                        Classes.active="{Binding IsHostsSection}"
+                        Command="{Binding ShowSettingsSectionCommand}">
+                    <Button.CommandParameter>
+                        <x:Int32>2</x:Int32>
                     </Button.CommandParameter>
                 </Button>
 
@@ -48,10 +61,11 @@
                         Classes.active="{Binding IsAboutSection}"
                         Command="{Binding ShowSettingsSectionCommand}">
                     <Button.CommandParameter>
-                        <x:Int32>2</x:Int32>
+                        <x:Int32>3</x:Int32>
                     </Button.CommandParameter>
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBlock Text="About" VerticalAlignment="Center" />
+                        <TextBlock Text="{ReflectionBinding Localization[Settings_About]}"
+                                   VerticalAlignment="Center" />
                         <Ellipse Width="7" Height="7" VerticalAlignment="Center"
                                  Fill="{DynamicResource NotificationDot}"
                                  IsVisible="{Binding Update.IsUpdateAvailable}" />
@@ -63,6 +77,45 @@
         <Border Grid.Column="1" Width="1" Background="{DynamicResource BorderSubtle}" />
 
         <Panel Grid.Column="2">
+
+            <!-- ===================== General ===================== -->
+            <ScrollViewer IsVisible="{Binding IsGeneralSection}">
+                <StackPanel MaxWidth="880" Margin="32,28,32,48" Spacing="22"
+                            HorizontalAlignment="Left">
+
+                    <StackPanel Spacing="8">
+                        <TextBlock Classes="h1"
+                                   Text="{ReflectionBinding Localization[Settings_General]}" />
+                        <TextBlock Classes="caption" TextWrapping="Wrap"
+                                   Text="{ReflectionBinding Localization[Settings_General_Description]}" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="12">
+                        <TextBlock Classes="sectionLabel"
+                                   Text="{ReflectionBinding Localization[Settings_Language]}" />
+
+                        <Border Classes="card">
+                            <StackPanel Spacing="10">
+                                <TextBlock Classes="h2"
+                                           Text="{ReflectionBinding Localization[Settings_Language]}" />
+                                <TextBlock Classes="caption" TextWrapping="Wrap"
+                                           Text="{ReflectionBinding Localization[Settings_Language_Description]}" />
+
+                                <ComboBox Width="360"
+                                          HorizontalAlignment="Left"
+                                          ItemsSource="{Binding LanguageOptions}"
+                                          SelectedItem="{Binding SelectedLanguage, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:LanguageOption">
+                                            <TextBlock Text="{Binding DisplayName}" />
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
 
             <!-- ===================== Accounts ===================== -->
             <ScrollViewer IsVisible="{Binding IsAccountsSection}">
