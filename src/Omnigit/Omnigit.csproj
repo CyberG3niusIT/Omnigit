@@ -14,7 +14,8 @@
     <Company>Polemus</Company>
     <Product>Omnigit</Product>
     <ApplicationIcon>Assets/omnigit.ico</ApplicationIcon>
-    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Localization needs real culture data; invariant mode rejects non-invariant cultures. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 

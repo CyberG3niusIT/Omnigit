@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
@@ -8,9 +9,11 @@ using Avalonia.Controls.Documents;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml.MarkupExtensions;
+using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Omnigit.Localization;
 using Omnigit.Services;
 using Omnigit.ViewModels;
 
@@ -18,6 +21,8 @@ namespace Omnigit.Views;
 
 public partial class MainWindow : Window
 {
+    private ILocalizationService? _localization;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -85,8 +90,17 @@ public partial class MainWindow : Window
     /// </summary>
     private void OnDataContextChanged(object? sender, EventArgs e)
     {
+        if (_localization is not null)
+            _localization.PropertyChanged -= OnLocalizationPropertyChanged;
+
+        _localization = null;
+
         if (DataContext is not MainWindowViewModel model)
             return;
+
+        _localization = model.Localization;
+        _localization.PropertyChanged += OnLocalizationPropertyChanged;
+        ApplyFlowDirection();
 
         // Text is only as tall as the lines in it, so with a short log everything below
         // the last one would belong to the ScrollViewer and a drag started there would
@@ -125,6 +139,19 @@ public partial class MainWindow : Window
 
         foreach (var entry in model.LogEntries)
             AppendLogLine(entry);
+    }
+
+    private void OnLocalizationPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(ILocalizationService.IsRightToLeft) or "Item[]" or "")
+            ApplyFlowDirection();
+    }
+
+    private void ApplyFlowDirection()
+    {
+        FlowDirection = _localization?.IsRightToLeft == true
+            ? Avalonia.Media.FlowDirection.RightToLeft
+            : Avalonia.Media.FlowDirection.LeftToRight;
     }
 
     /// <summary>How many runs each line put into the surface, oldest first.</summary>

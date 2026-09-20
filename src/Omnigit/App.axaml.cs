@@ -5,6 +5,7 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using FluentAvalonia.Styling;
 using Omnigit.HostProviders;
+using Omnigit.Localization;
 using Omnigit.Services;
 using Omnigit.ViewModels;
 using Omnigit.Views;
@@ -52,6 +53,7 @@ public partial class App : Application
 
             var http = new System.Net.Http.HttpClient { Timeout = System.TimeSpan.FromSeconds(30) };
             var credentials = CredentialStoreFactory.Create();
+            var localization = new LocalizationService(new AppSettingsStore());
 
             // The console is a window on the session; the file is the record of it, and
             // the only one that survives the app being closed by the user or by a crash.
@@ -77,7 +79,8 @@ public partial class App : Application
                 log,
                 new SystemShell(),
                 new RepositoryWatcher(),
-                new UpdateService());
+                new UpdateService(),
+                localization);
 
             desktop.MainWindow = new MainWindow { DataContext = viewModel };
 

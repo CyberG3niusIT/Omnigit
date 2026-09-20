@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls; // GridLength, for the resizable pane widths below.
@@ -9,6 +10,7 @@ using Avalonia.Threading; // The timer behind the background fetch.
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Omnigit.HostProviders;
+using Omnigit.Localization;
 using Omnigit.Models;
 using Omnigit.Services;
 
@@ -43,7 +45,7 @@ public partial class MainWindowViewModel : ViewModelBase
                HostProviderRegistry.Create(new System.Net.Http.HttpClient()),
                new AccountStore(new FileCredentialStore()), new FileCredentialStore(),
                new ActivityLog(), new SystemShell(), new RepositoryWatcher(), new UpdateService(),
-               designTime: true)
+               new LocalizationService(systemCultureName: "en-US"), designTime: true)
     {
         LoadDesignTimeData();
     }
@@ -58,9 +60,10 @@ public partial class MainWindowViewModel : ViewModelBase
         IActivityLog log,
         ISystemShell shell,
         IRepositoryWatcher watcher,
-        IUpdateService update)
+        IUpdateService update,
+        ILocalizationService? localization = null)
         : this(git, store, picker, hosts, accountStore, credentials, log, shell, watcher, update,
-               designTime: false)
+               localization ?? new LocalizationService(), designTime: false)
     {
     }
 
@@ -75,6 +78,7 @@ public partial class MainWindowViewModel : ViewModelBase
         ISystemShell shell,
         IRepositoryWatcher watcher,
         IUpdateService update,
+        ILocalizationService localization,
         bool designTime)
     {
         _git = git;
@@ -87,6 +91,10 @@ public partial class MainWindowViewModel : ViewModelBase
         _shell = shell;
         _watcher = watcher;
         _isDesignTime = designTime;
+
+        Localization = localization;
+        RebuildLanguageOptions();
+        Localization.PropertyChanged += OnLocalizationPropertyChanged;
 
         Update = new UpdateViewModel(update, log, shell, designTime);
 
@@ -781,19 +789,74 @@ public partial class MainWindowViewModel : ViewModelBase
 
     // ---- Settings ----------------------------------------------------------
 
+    public ILocalizationService Localization { get; }
+
+    public ObservableCollection<LanguageOption> LanguageOptions { get; } = [];
+
+    private bool _rebuildingLanguageOptions;
+
+    [ObservableProperty]
+    public partial LanguageOption? SelectedLanguage { get; set; }
+
+    partial void OnSelectedLanguageChanged(LanguageOption? value)
+    {
+        if (_rebuildingLanguageOptions || value is null)
+            return;
+
+        Localization.SetCulture(value.CultureName);
+    }
+
+    private void OnLocalizationPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is "Item[]" or "")
+            RebuildLanguageOptions();
+    }
+
+    private void RebuildLanguageOptions()
+    {
+        var selected = Localization.SelectedCulture;
+
+        _rebuildingLanguageOptions = true;
+        try
+        {
+            LanguageOptions.Clear();
+            LanguageOptions.Add(new LanguageOption(
+                null,
+                Localization["Settings_Language_System"]));
+
+            foreach (var name in SupportedCultures.Available)
+            {
+                var culture = CultureInfo.GetCultureInfo(name);
+                LanguageOptions.Add(new LanguageOption(culture.Name, culture.NativeName));
+            }
+
+            SelectedLanguage = LanguageOptions.First(option =>
+                string.Equals(
+                    option.CultureName,
+                    selected,
+                    StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            _rebuildingLanguageOptions = false;
+        }
+    }
+
     /// <summary>
     /// Which section of settings is showing. An int rather than an enum so the tab rail
     /// can pass one through CommandParameter without a converter; there will be more.
     /// </summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsGeneralSection))]
     [NotifyPropertyChangedFor(nameof(IsAccountsSection))]
     [NotifyPropertyChangedFor(nameof(IsHostsSection))]
     [NotifyPropertyChangedFor(nameof(IsAboutSection))]
     public partial int SettingsSection { get; set; }
 
-    public bool IsAccountsSection => SettingsSection == 0;
-    public bool IsHostsSection => SettingsSection == 1;
-    public bool IsAboutSection => SettingsSection == 2;
+    public bool IsGeneralSection => SettingsSection == 0;
+    public bool IsAccountsSection => SettingsSection == 1;
+    public bool IsHostsSection => SettingsSection == 2;
+    public bool IsAboutSection => SettingsSection == 3;
 
     /// <summary>The version, and the one button that changes it.</summary>
     public UpdateViewModel Update { get; }
@@ -3039,7 +3102,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private void AddAccount()
     {
         ShowSettings();
-        SettingsSection = 0;
+        SettingsSection = 1;
     }
 
     [RelayCommand]

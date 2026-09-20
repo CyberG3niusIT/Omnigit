@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <data name="Settings_BackToRepository"><value>← Zurück zum Repository</value></data>
+  <data name="Settings_Title"><value>EINSTELLUNGEN</value></data>
+  <data name="Settings_General"><value>Allgemein</value></data>
+  <data name="Settings_General_Description"><value>Programmweite Einstellungen.</value></data>
+  <data name="Settings_Accounts"><value>Konten</value></data>
+  <data name="Settings_HostingSites"><value>Hosting-Dienste</value></data>
+  <data name="Settings_About"><value>Über Omnigit</value></data>
+  <data name="Settings_Language"><value>Sprache</value></data>
+  <data name="Settings_Language_Description"><value>Wähle die Sprache der Omnigit-Oberfläche.</value></data>
+  <data name="Settings_Language_System"><value>Systemeinstellung</value></data>
+</root>
